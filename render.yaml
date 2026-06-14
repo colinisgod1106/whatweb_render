@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: whatweb-gui
+    env: docker
+    dockerfilePath: ./Dockerfile

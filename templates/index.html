@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhatWeb GUI — 網站技術指紋識別</title>
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0a0c10;
+    --surface:   #111318;
+    --surface2:  #181c24;
+    --border:    #232834;
+    --accent:    #00e5ff;
+    --accent2:   #7c3aed;
+    --green:     #00c853;
+    --red:       #ff3d00;
+    --yellow:    #ffd600;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --radius:    10px;
+    --glow:      0 0 24px rgba(0,229,255,.15);
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Scanlines overlay ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,.08) 2px, rgba(0,0,0,.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Header ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .logo-text { display: flex; flex-direction: column; }
+  .logo-text h1 {
+    font-size: 18px; font-weight: 700; letter-spacing: -.3px;
+    background: linear-gradient(90deg, var(--accent), #a78bfa);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .logo-text span { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  .header-pills { margin-left: auto; display: flex; gap: 8px; }
+  .pill {
+    font-size: 11px; font-family: var(--font-mono);
+    padding: 3px 10px; border-radius: 20px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .pill.live { border-color: var(--green); color: var(--green); }
+  .pill.live::before { content: '● '; }
+
+  /* ── Main layout ── */
+  main { max-width: 1000px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ── Scan panel ── */
+  .scan-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 32px;
+  }
+  .panel-label {
+    font-size: 11px; font-family: var(--font-mono);
+    color: var(--accent); letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-label::before {
+    content: ''; display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 14px 16px;
+    resize: vertical;
+    min-height: 90px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  textarea:focus { border-color: var(--accent); box-shadow: var(--glow); }
+  textarea::placeholder { color: var(--muted); }
+  .scan-row { display: flex; gap: 12px; margin-top: 14px; align-items: flex-start; }
+  .hint { font-size: 12px; color: var(--muted); font-family: var(--font-mono); flex: 1; padding-top: 10px; }
+  .hint code { color: var(--accent); }
+  button#scanBtn {
+    padding: 11px 28px;
+    background: linear-gradient(135deg, var(--accent), #0091ea);
+    color: #000; font-weight: 700; font-size: 14px;
+    border: none; border-radius: 8px; cursor: pointer;
+    letter-spacing: .3px;
+    display: flex; align-items: center; gap: 8px;
+    transition: opacity .2s, transform .1s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  button#scanBtn:hover { opacity: .9; }
+  button#scanBtn:active { transform: scale(.98); }
+  button#scanBtn:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* ── Progress ── */
+  #progress {
+    display: none;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  #progress .prog-header { color: var(--accent); margin-bottom: 12px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+  .prog-bar-wrap { background: var(--bg); border-radius: 4px; height: 4px; overflow: hidden; margin-bottom: 12px; }
+  .prog-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); width: 0%; transition: width .4s; border-radius: 4px; }
+  #progress .log { color: var(--muted); font-size: 12px; max-height: 80px; overflow-y: auto; }
+  #progress .log .line { padding: 1px 0; }
+  #progress .log .line.ok { color: var(--green); }
+  #progress .log .line.err { color: var(--red); }
+
+  /* ── Error banner ── */
+  #errorBanner {
+    display: none;
+    background: rgba(255,61,0,.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 14px 18px;
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    font-size: 14px;
+  }
+
+  /* ── Results ── */
+  #results {}
+  .result-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    overflow: hidden;
+    animation: fadeUp .3s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card-header {
+    padding: 16px 22px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .card-status {
+    font-size: 12px; font-family: var(--font-mono);
+    padding: 3px 10px; border-radius: 20px; font-weight: 600;
+  }
+  .card-status.ok { background: rgba(0,200,83,.15); color: var(--green); border: 1px solid rgba(0,200,83,.3); }
+  .card-status.err { background: rgba(255,61,0,.15); color: var(--red); border: 1px solid rgba(255,61,0,.3); }
+  .card-status.warn { background: rgba(255,214,0,.15); color: var(--yellow); border: 1px solid rgba(255,214,0,.3); }
+  .card-url {
+    font-family: var(--font-mono); font-size: 14px;
+    color: var(--accent); text-decoration: none;
+    word-break: break-all;
+    flex: 1;
+  }
+  .card-url:hover { text-decoration: underline; }
+  .card-ts { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+  .card-body { padding: 22px; }
+
+  /* Meta grid */
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 22px;
+  }
+  .meta-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px 14px;
+  }
+  .meta-item .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; font-family: var(--font-mono); }
+  .meta-item .v { font-size: 13px; color: var(--text); word-break: break-all; font-family: var(--font-mono); }
+  .meta-item .v.accent { color: var(--accent); }
+  .meta-item .v.green { color: var(--green); }
+  .meta-item .v.red { color: var(--red); }
+
+  /* Section labels */
+  .section-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--muted); font-family: var(--font-mono);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* Tech pills */
+  .tech-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+  .tech-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 7px;
+    font-size: 12px; font-family: var(--font-mono);
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    cursor: default;
+    transition: border-color .15s;
+  }
+  .tech-pill:hover { border-color: var(--accent); }
+  .tech-pill .cat-dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .tech-pill .name { color: var(--text); font-weight: 500; }
+  .tech-pill .ver { color: var(--accent); font-size: 11px; }
+  .tech-pill .cat-tag {
+    font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px;
+  }
+
+  /* Category colors */
+  .cat-cms { background: #7c3aed; }
+  .cat-ecommerce { background: #059669; }
+  .cat-webserver { background: #0284c7; }
+  .cat-cdn { background: #d97706; }
+  .cat-lang { background: #dc2626; }
+  .cat-framework { background: #7c3aed; }
+  .cat-jsframework { background: #16a34a; }
+  .cat-analytics { background: #0891b2; }
+  .cat-security { background: #9f1239; }
+  .cat-css { background: #6d28d9; }
+  .cat-payment { background: #065f46; }
+  .cat-hosting { background: #1e40af; }
+  .cat-other { background: var(--muted); }
+
+  /* Headers table */
+  .headers-toggle {
+    background: none; border: 1px solid var(--border);
+    color: var(--muted); border-radius: 6px;
+    padding: 5px 12px; font-size: 12px; font-family: var(--font-mono);
+    cursor: pointer; transition: all .15s;
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .headers-toggle:hover { border-color: var(--accent); color: var(--accent); }
+  .headers-toggle .arrow { transition: transform .2s; }
+  .headers-toggle.open .arrow { transform: rotate(90deg); }
+  .headers-table { display: none; }
+  .headers-table.visible { display: block; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px; }
+  th, td { padding: 7px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; background: var(--bg); }
+  td:first-child { color: var(--accent); width: 35%; word-break: break-all; }
+  td:last-child { color: var(--text); word-break: break-all; }
+  tr:last-child td { border-bottom: none; }
+
+  /* No-tech empty */
+  .no-tech {
+    padding: 20px;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg);
+    border-radius: 7px;
+    border: 1px dashed var(--border);
+  }
+
+  /* Error card */
+  .error-card {
+    background: rgba(255,61,0,.07);
+    border: 1px solid rgba(255,61,0,.25);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .error-card .err-url { font-family: var(--font-mono); color: var(--accent); font-size: 14px; margin-bottom: 8px; }
+  .error-card .err-msg { color: var(--red); font-size: 13px; font-family: var(--font-mono); }
+
+  /* SSL badge */
+  .ssl-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-family: var(--font-mono);
+    padding: 3px 9px; border-radius: 20px;
+  }
+  .ssl-ok { background: rgba(0,200,83,.1); border: 1px solid rgba(0,200,83,.3); color: var(--green); }
+  .ssl-no { background: rgba(255,61,0,.1); border: 1px solid rgba(255,61,0,.3); color: var(--red); }
+
+  /* Stats row */
+  .stats-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat-chip {
+    font-size: 11px; font-family: var(--font-mono);
+    padding: 4px 10px; border-radius: 6px;
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .stat-chip strong { color: var(--text); }
+
+  /* Summary bar */
+  #summary { display: none; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 22px; margin-bottom: 24px; }
+  #summary .s-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); font-family: var(--font-mono); margin-bottom: 10px; }
+  .summary-cats { display: flex; flex-wrap: wrap; gap: 8px; }
+  .scat { font-size: 12px; font-family: var(--font-mono); padding: 4px 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+  .scat span { color: var(--accent); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 600px) {
+    main { padding: 24px 14px 60px; }
+    .scan-row { flex-direction: column; }
+    button#scanBtn { width: 100%; justify-content: center; }
+    header { padding: 14px 16px; }
+    .header-pills { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-icon">🔍</div>
+  <div class="logo-text">
+    <h1>WhatWeb GUI</h1>
+    <span>Website Technology Fingerprinting</span>
+  </div>
+  <div class="header-pills">
+    <span class="pill live">Online</span>
+    <span class="pill">v2.0</span>
+    <span class="pill">1800+ Signatures</span>
+  </div>
+</header>
+
+<main>
+  <!-- Scan Panel -->
+  <div class="scan-panel">
+    <div class="panel-label">目標 URL</div>
+    <textarea id="urlInput" placeholder="輸入一個或多個 URL（每行一個或用逗號分隔）&#10;例如：https://example.com&#10;     wordpress.org, nextjs.org"></textarea>
+    <div class="scan-row">
+      <div class="hint">支援最多 <code>5</code> 個 URL 同時掃描 · 自動辨識 HTTP/HTTPS</div>
+      <button id="scanBtn" onclick="startScan()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        開始掃描
+      </button>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div id="progress">
+    <div class="prog-header">▶ SCANNING IN PROGRESS</div>
+    <div class="prog-bar-wrap"><div class="prog-bar" id="progBar"></div></div>
+    <div class="log" id="scanLog"></div>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBanner"></div>
+
+  <!-- Summary -->
+  <div id="summary">
+    <div class="s-title">掃描摘要</div>
+    <div class="summary-cats" id="summaryCats"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results"></div>
+</main>
+
+<script>
+const CAT_COLOR_MAP = {
+  "CMS": "cat-cms",
+  "E-commerce": "cat-ecommerce",
+  "Web Server": "cat-webserver",
+  "CDN / Security": "cat-cdn",
+  "Programming Language": "cat-lang",
+  "Framework": "cat-framework",
+  "JavaScript Framework": "cat-jsframework",
+  "Analytics": "cat-analytics",
+  "Security": "cat-security",
+  "CSS Framework": "cat-css",
+  "Payment": "cat-payment",
+  "Hosting": "cat-hosting",
+};
+function catDotClass(cat) {
+  return CAT_COLOR_MAP[cat] || "cat-other";
+}
+
+function statusClass(code) {
+  if (!code) return "err";
+  if (code >= 200 && code < 300) return "ok";
+  if (code >= 300 && code < 400) return "warn";
+  return "err";
+}
+
+function logLine(text, cls = "") {
+  const el = document.createElement("div");
+  el.className = "line " + cls;
+  el.textContent = text;
+  document.getElementById("scanLog").appendChild(el);
+  el.scrollIntoView({ block: "nearest" });
+}
+
+function setProgress(pct) {
+  document.getElementById("progBar").style.width = pct + "%";
+}
+
+async function startScan() {
+  const input = document.getElementById("urlInput").value.trim();
+  if (!input) return;
+
+  // Reset
+  document.getElementById("results").innerHTML = "";
+  document.getElementById("errorBanner").style.display = "none";
+  document.getElementById("summary").style.display = "none";
+  document.getElementById("scanLog").innerHTML = "";
+  document.getElementById("progress").style.display = "block";
+  setProgress(10);
+  document.getElementById("scanBtn").disabled = true;
+
+  logLine("→ 準備掃描目標...");
+
+  try {
+    setProgress(30);
+    const resp = await fetch("/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: input }),
+    });
+    setProgress(70);
+    const data = await resp.json();
+    setProgress(95);
+
+    if (data.error) {
+      showError(data.error);
+      return;
+    }
+
+    logLine("✓ 掃描完成，正在渲染結果...", "ok");
+    setProgress(100);
+
+    setTimeout(() => {
+      document.getElementById("progress").style.display = "none";
+      renderResults(data.results);
+    }, 400);
+
+  } catch (e) {
+    showError("網路錯誤：" + e.message);
+  } finally {
+    document.getElementById("scanBtn").disabled = false;
+  }
+}
+
+function showError(msg) {
+  const b = document.getElementById("errorBanner");
+  b.textContent = "⚠ " + msg;
+  b.style.display = "block";
+  document.getElementById("progress").style.display = "none";
+}
+
+function renderResults(results) {
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+
+  // Build global category summary
+  const catCounts = {};
+  results.forEach(r => {
+    if (r.detected) r.detected.forEach(d => {
+      catCounts[d.category] = (catCounts[d.category] || 0) + 1;
+    });
+  });
+
+  if (Object.keys(catCounts).length) {
+    document.getElementById("summary").style.display = "block";
+    const cats = document.getElementById("summaryCats");
+    cats.innerHTML = Object.entries(catCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => `<div class="scat">${c} <span>×${n}</span></div>`)
+      .join("");
+  }
+
+  results.forEach((r, idx) => {
+    if (r.error) {
+      const div = document.createElement("div");
+      div.className = "error-card";
+      div.style.animationDelay = (idx * 80) + "ms";
+      div.innerHTML = `
+        <div class="err-url">⚠ ${escHtml(r.url)}</div>
+        <div class="err-msg">${escHtml(r.error)}</div>`;
+      container.appendChild(div);
+      return;
+    }
+
+    const card = document.createElement("div");
+    card.className = "result-card";
+    card.style.animationDelay = (idx * 80) + "ms";
+
+    const sc = r.status_code;
+    const sCls = statusClass(sc);
+    const scLabel = sc ? sc : "ERR";
+
+    const ssl = r.ssl || {};
+    const sslBadge = ssl.has_ssl
+      ? `<span class="ssl-badge ssl-ok">🔒 SSL</span>`
+      : (r.url.startsWith("https") ? `<span class="ssl-badge ssl-no">⚠ SSL 失敗</span>` : "");
+
+    // Tech pills
+    let techHtml = "";
+    if (r.detected && r.detected.length) {
+      techHtml = r.detected.map(d => {
+        const dotCls = catDotClass(d.category);
+        const ver = d.version ? `<span class="ver"> ${escHtml(d.version)}</span>` : "";
+        return `<div class="tech-pill" title="${escHtml(d.category)}">
+          <span class="cat-dot ${dotCls}"></span>
+          <span class="name">${escHtml(d.icon)} ${escHtml(d.name)}</span>${ver}
+        </div>`;
+      }).join("");
+    } else {
+      techHtml = `<div class="no-tech">未偵測到已知技術特徵</div>`;
+    }
+
+    // Meta
+    const meta = r.meta || {};
+    const metaItems = [
+      { k: "標題", v: meta.title || "—", cls: "" },
+      { k: "Generator", v: meta.generator || "—", cls: "" },
+      { k: "Status", v: sc ? sc : "—", cls: sCls === "ok" ? "green" : sCls === "err" ? "red" : "accent" },
+      { k: "Charset", v: meta.charset || "—", cls: "accent" },
+      { k: "大小", v: meta.content_length ? formatBytes(meta.content_length) : "—", cls: "" },
+      { k: "跳轉次數", v: meta.redirect_count !== undefined ? meta.redirect_count : "—", cls: "" },
+      ...(ssl.has_ssl ? [
+        { k: "SSL 簽發", v: ssl.issuer || "—", cls: "green" },
+        { k: "SSL 有效期", v: ssl.valid_until ? ssl.valid_until.split(" ")[0] : "—", cls: "" },
+      ] : []),
+    ];
+
+    const metaHtml = metaItems.map(m =>
+      `<div class="meta-item"><div class="k">${m.k}</div><div class="v ${m.cls}">${escHtml(String(m.v))}</div></div>`
+    ).join("");
+
+    // Headers
+    const hdrs = r.headers || {};
+    const hdrRows = Object.entries(hdrs).slice(0, 30).map(([k, v]) =>
+      `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v).substring(0, 200))}</td></tr>`
+    ).join("");
+
+    const finalUrl = r.final_url || r.url;
+    const cardId = "card-" + idx;
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-status ${sCls}">${scLabel}</span>
+        <a class="card-url" href="${escAttr(finalUrl)}" target="_blank" rel="noopener">${escHtml(finalUrl)}</a>
+        ${sslBadge}
+        <span class="card-ts">${escHtml(r.timestamp || "")}</span>
+      </div>
+      <div class="card-body">
+        <div class="stats-row">
+          <span class="stat-chip">偵測到 <strong>${(r.detected || []).length}</strong> 項技術</span>
+          ${meta.description ? `<span class="stat-chip" title="${escAttr(meta.description)}">
+            📄 ${escHtml(meta.description.substring(0, 60))}${meta.description.length > 60 ? "…" : ""}
+          </span>` : ""}
+        </div>
+
+        <div class="section-label">偵測到的技術</div>
+        <div class="tech-grid">${techHtml}</div>
+
+        <div class="section-label">頁面資訊</div>
+        <div class="meta-grid">${metaHtml}</div>
+
+        <button class="headers-toggle" onclick="toggleHeaders('${cardId}', this)">
+          <span class="arrow">▶</span> HTTP 回應標頭 (${Object.keys(hdrs).length})
+        </button>
+        <div class="headers-table" id="${cardId}">
+          <table>
+            <thead><tr><th>Header</th><th>Value</th></tr></thead>
+            <tbody>${hdrRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+
+    container.appendChild(card);
+  });
+}
+
+function toggleHeaders(id, btn) {
+  const el = document.getElementById(id);
+  el.classList.toggle("visible");
+  btn.classList.toggle("open");
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function escAttr(s) { return escHtml(s); }
+
+function formatBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(2) + " MB";
+}
+
+// Allow Enter to submit (Shift+Enter for newline)
+document.getElementById("urlInput").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    startScan();
+  }
+});
+</script>
+</body>
+</html>
